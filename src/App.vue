@@ -185,6 +185,8 @@
 </template>
 
 <script>
+import { loadTickers } from "./api";
+
 export default {
   name: "App",
   data() {
@@ -215,10 +217,9 @@ export default {
 
     if (tickersData) {
       this.tickers = JSON.parse(tickersData);
-      this.tickers.forEach((ticker) => {
-        this.subscribeToUpdates(ticker.name);
-      });
     }
+
+    setInterval(this.updateTickers, 5000);
   },
   async mounted() {
     const f = await fetch(
@@ -276,24 +277,38 @@ export default {
       return {
         filter: this.filter,
         page: this.page,
-      }
+      };
     },
   },
 
   methods: {
-    subscribeToUpdates(tickerName) {
-      setInterval(async () => {
-        const f = await fetch(
-          `https://min-api.cryptocompare.com/data/price?fsym=${tickerName}&tsyms=USD&api_key=11baf9225820554f017024eb66e99d4bfac5c6fcd05bee8b6272cd25db1e3547`
-        );
-        const data = await f.json();
-        this.tickers.find((t) => t.name === tickerName).price =
-          data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
+    formatPrice(price) {
+      if (price === "-") {
+        return price;
+      }
+      return price > 1 ? price.toFixed(2) : price.toPrecision(2);
+    },
 
-        if (this.selectedTicker?.name === tickerName) {
-          this.graph.push(data.USD);
-        }
-      }, 5000);
+    async updateTickers(tickerName) {
+      if (!this.tickers.length) {
+        return;
+      }
+      const exchangeData = await loadTickers(this.tickers.map((t) => t.name));
+
+      this.tickers.forEach((ticker) => {
+        const price = exchangeData[ticker.name.toUpperCase()];
+        ticker.price = price ?? "-";
+      });
+
+      this.tickers.find((t) => t.name === tickerName).price =
+        exchangeData.USD > 1
+          ? exchangeData.USD.toFixed(2)
+          : exchangeData.USD.toPrecision(2);
+
+      if (this.selectedTicker?.name === tickerName) {
+        this.graph.push(exchangeData.USD);
+      }
+      this.ticker = "";
     },
     add() {
       const currentTicker = {
@@ -305,8 +320,6 @@ export default {
         return;
       }
       this.tickers = [...this.tickers, currentTicker];
-      this.subscribeToUpdates(currentTicker.name);
-      this.ticker = "";
     },
 
     handleDelete(tickerToRemove) {
