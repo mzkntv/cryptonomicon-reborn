@@ -36,6 +36,7 @@
               <input
                 v-model="ticker"
                 @keydown.enter="add"
+                @input="isInTickers = false"
                 type="text"
                 name="wallet"
                 id="wallet"
@@ -45,27 +46,16 @@
             </div>
             <div class="flex bg-white p-1 rounded-md shadow-md flex-wrap">
               <span
+                v-for="coin in filteredCoinList"
+                :key="coin.id"
                 class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
               >
-                BTC
-              </span>
-              <span
-                class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
-              >
-                DOGE
-              </span>
-              <span
-                class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
-              >
-                BCH
-              </span>
-              <span
-                class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
-              >
-                CHD
+                {{ coin.Symbol }}
               </span>
             </div>
-            <div class="text-sm text-red-600">Такой тикер уже добавлен</div>
+            <div v-if="isInTickers" class="text-sm text-red-600">
+              Такой тикер уже добавлен
+            </div>
           </div>
         </div>
         <button
@@ -183,34 +173,72 @@ export default {
     return {
       ticker: "",
       tickers: [],
+      coinList: [],
       loading: true,
       selectedTicker: null,
       graph: [],
+      isInTickers: false,
     };
   },
-  mounted() {
+  created() {
+    const tickersData = localStorage.getItem("cryptonomicon-list");
+
+    if (tickersData) {
+      this.tickers = JSON.parse(tickersData);
+      this.tickers.forEach((ticker) => {
+        this.subscribeToUpdates(ticker.name);
+      });
+    }
+  },
+  async mounted() {
+    const f = await fetch(
+      "https://min-api.cryptocompare.com/data/all/coinlist?summary=true"
+    );
+    const data = await f.json();
+    this.coinList = data.Data;
     this.loading = false;
   },
 
+  computed: {
+    filteredCoinList() {
+      return Object.values(this.coinList)
+        .filter(
+          (el) =>
+            el.Symbol.includes(this.ticker) || el.FullName.includes(this.ticker)
+        )
+        .slice(0, 4);
+    },
+  },
+
   methods: {
+    subscribeToUpdates(tickerName) {
+      setInterval(async () => {
+        const f = await fetch(
+          `https://min-api.cryptocompare.com/data/price?fsym=${tickerName}&tsyms=USD&api_key=11baf9225820554f017024eb66e99d4bfac5c6fcd05bee8b6272cd25db1e3547`
+        );
+        const data = await f.json();
+        this.tickers.find((t) => t.name === tickerName).price =
+          data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
+
+        if (this.selectedTicker?.name === tickerName) {
+          this.graph.push(data.USD);
+        }
+      }, 5000);
+    },
     add() {
       const currentTicker = {
         name: this.ticker,
         price: "-",
       };
+      if (this.tickers.find((el) => el.name === currentTicker.name)) {
+        this.isInTickers = true;
+        return;
+      }
       this.tickers.push(currentTicker);
-      setInterval(async () => {
-        const f = await fetch(
-          `https://min-api.cryptocompare.com/data/price?fsym=${currentTicker.name}&tsyms=USD&api_key=11baf9225820554f017024eb66e99d4bfac5c6fcd05bee8b6272cd25db1e3547`
-        );
-        const data = await f.json();
-        this.tickers.find((t) => t.name === currentTicker.name).price =
-          data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
 
-        if (this.selectedTicker?.name === currentTicker.name) {
-          this.graph.push(data.USD);
-        }
-      }, 5000);
+      localStorage.setItem("cryptonomicon-list", JSON.stringify(this.tickers));
+      this.subscribeToUpdates(currentTicker.name);
+
       this.ticker = "";
     },
 
