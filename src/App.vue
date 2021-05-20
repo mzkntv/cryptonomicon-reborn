@@ -42,6 +42,7 @@
                 id="wallet"
                 class="block w-full pr-10 border-gray-300 text-gray-900 focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm rounded-md"
                 placeholder="Например DOGE"
+                autocomplete="off"
               />
             </div>
             <div class="flex bg-white p-1 rounded-md shadow-md flex-wrap">
@@ -100,7 +101,7 @@
         <hr class="w-full border-t border-gray-600 my-4" />
         <dl class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-3">
           <div
-            v-for="t in filteredTickers()"
+            v-for="t in paginatedTickers"
             :key="t.name"
             @click="select(t)"
             :class="{
@@ -145,7 +146,7 @@
         </h3>
         <div class="flex items-end border-gray-600 border-b border-l h-64">
           <div
-            v-for="(bar, idx) in normalizeGraph()"
+            v-for="(bar, idx) in normalizedGraph"
             :key="idx"
             :style="{ height: `${bar}%` }"
             class="bg-purple-800 border w-10"
@@ -197,17 +198,18 @@ export default {
       isInTickers: false,
       page: 1,
       filter: "",
-      hasNextPage: false,
     };
   },
   created() {
-    const windowData = Object.fromEntries(new URL(window.location).searchParams.entries());
+    const windowData = Object.fromEntries(
+      new URL(window.location).searchParams.entries()
+    );
 
     if (windowData.filter) {
-      this.filter = windowData.filter
+      this.filter = windowData.filter;
     }
     if (windowData.page) {
-      this.page = windowData.page
+      this.page = windowData.page;
     }
     const tickersData = localStorage.getItem("cryptonomicon-list");
 
@@ -236,21 +238,49 @@ export default {
         )
         .slice(0, 4);
     },
+
+    startIndex() {
+      return (this.page - 1) * 6;
+    },
+
+    endIndex() {
+      return this.page * 6;
+    },
+
+    filteredTickers() {
+      return this.tickers.filter((ticker) => ticker.name.includes(this.filter));
+    },
+
+    paginatedTickers() {
+      return this.filteredTickers.slice(this.startIndex, this.endIndex);
+    },
+
+    hasNextPage() {
+      return this.filteredTickers.length > this.endIndex;
+    },
+
+    normalizedGraph() {
+      const maxValue = Math.max(...this.graph);
+      const minValue = Math.min(...this.graph);
+
+      if (maxValue === minValue) {
+        return this.graph.map(() => 50);
+      }
+
+      return this.graph.map(
+        (price) => 5 + ((price - minValue) * 95) / (maxValue - minValue)
+      );
+    },
+
+    pageStateOptions() {
+      return {
+        filter: this.filter,
+        page: this.page,
+      }
+    },
   },
 
   methods: {
-    filteredTickers() {
-      const start = (this.page - 1) * 6;
-      const end = this.page * 6;
-
-      const filtered = this.tickers.filter((ticker) =>
-        ticker.name.includes(this.filter)
-      );
-
-      this.hasNextPage = filtered.length > end;
-
-      return filtered.slice(start, end);
-    },
     subscribeToUpdates(tickerName) {
       setInterval(async () => {
         const f = await fetch(
@@ -274,24 +304,17 @@ export default {
         this.isInTickers = true;
         return;
       }
-      this.tickers.push(currentTicker);
-
-      localStorage.setItem("cryptonomicon-list", JSON.stringify(this.tickers));
+      this.tickers = [...this.tickers, currentTicker];
       this.subscribeToUpdates(currentTicker.name);
-
       this.ticker = "";
     },
 
     handleDelete(tickerToRemove) {
       this.tickers = this.tickers.filter((t) => t !== tickerToRemove);
-    },
 
-    normalizeGraph() {
-      const maxValue = Math.max(...this.graph);
-      const minValue = Math.min(...this.graph);
-      return this.graph.map(
-        (price) => 5 + ((price - minValue) * 95) / (maxValue - minValue)
-      );
+      if (this.selectedTicker === tickerToRemove) {
+        this.selectedTicker = null;
+      }
     },
 
     select(ticker) {
@@ -300,20 +323,25 @@ export default {
     },
   },
   watch: {
+    tickers() {
+      localStorage.setItem("cryptonomicon-list", JSON.stringify(this.tickers));
+    },
+
+    paginatedTickers() {
+      if (this.paginatedTickers.length === 0 && this.page > 1) {
+        this.page -= 1;
+      }
+    },
+
     filter() {
       this.page = 1;
-
-      window.history.pushState(
-        null,
-        document.title,
-        `${window.location.pathname}?filter=${this.filter}&page=${this.page}`
-      );
     },
-    page() {
+
+    pageStateOptions(v) {
       window.history.pushState(
         null,
         document.title,
-        `${window.location.pathname}?filter=${this.filter}&page=${this.page}`
+        `${window.location.pathname}?filter=${v.filter}&page=${v.page}`
       );
     },
   },
