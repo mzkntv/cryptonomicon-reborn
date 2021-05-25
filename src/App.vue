@@ -1,6 +1,32 @@
 <template>
   <div class="container mx-auto flex flex-col items-center bg-gray-100 p-4">
-    <div class="container">
+    <div
+      v-if="loading"
+      class="fixed w-100 h-100 opacity-80 bg-purple-800 inset-0 z-50 flex items-center justify-center"
+    >
+      <svg
+        class="animate-spin -ml-1 mr-3 h-12 w-12 text-white"
+        xmlns="http://www.w3.org/2000/svg"
+        fill="none"
+        viewBox="0 0 24 24"
+      >
+        <circle
+          class="opacity-25"
+          cx="12"
+          cy="12"
+          r="10"
+          stroke="currentColor"
+          stroke-width="4"
+        ></circle>
+        <path
+          class="opacity-75"
+          fill="currentColor"
+          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+        ></path>
+      </svg>
+    </div>
+
+    <div v-else class="container">
       <div class="w-full my-4"></div>
       <section>
         <div class="flex">
@@ -11,6 +37,7 @@
             <div class="mt-1 relative rounded-md shadow-md">
               <input
                 v-model="ticker"
+                @input="invalidCoin = false"
                 @keydown.enter="add"
                 autocomplete="off"
                 type="text"
@@ -19,6 +46,19 @@
                 class="block w-full pr-10 border-gray-300 text-gray-900 focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm rounded-md"
                 placeholder="Например DOGE"
               />
+            </div>
+            <div class="flex bg-white p-1 rounded-md shadow-md flex-wrap">
+              <span
+                v-for="(coin, idx) in filteredCoinList"
+                @click="clickOnHint(coin.Symbol)"
+                :key="idx"
+                class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
+              >
+                {{ coin.Symbol }}
+              </span>
+            </div>
+            <div v-if="invalidCoin" class="text-sm text-red-600">
+              Такой тикер уже добавлен
             </div>
           </div>
         </div>
@@ -152,7 +192,10 @@ import { subscribeToTicker, unsubscribeFromTicker } from "./api";
 export default {
   data() {
     return {
-      ticker: "default",
+      loading: true,
+      coinList: ["BTC", "ETH"],
+      invalidCoin: false,
+      ticker: "",
       tickers: [],
       selectedTicker: null,
       graph: [],
@@ -182,7 +225,25 @@ export default {
       });
     }
   },
+  async mounted() {
+    this.coinList = await fetch(
+      "https://min-api.cryptocompare.com/data/all/coinlist?summary=true"
+    )
+      .then((response) => response.json())
+      .then((data) => data.Data);
+    this.loading = false;
+  },
   computed: {
+    filteredCoinList() {
+      return Object.values(this.coinList)
+        .filter(
+          (coin) =>
+            coin?.Symbol.includes(this.ticker.toUpperCase()) ||
+            coin?.FullName.includes(this.ticker.toUpperCase())
+        )
+        .slice(0, 4);
+    },
+
     startIndex() {
       return (this.page - 1) * 6;
     },
@@ -223,6 +284,11 @@ export default {
     },
   },
   methods: {
+    clickOnHint(coin) {
+      this.ticker = coin;
+      this.add();
+    },
+
     updateTicker(tickerName, price) {
       this.tickers
         .filter((t) => t.name === tickerName)
@@ -233,6 +299,7 @@ export default {
           t.price = price;
         });
     },
+
     formatPrice(price) {
       if (price === "-") {
         return price;
@@ -240,24 +307,20 @@ export default {
       return price > 1 ? price.toFixed(2) : price.toPrecision(2);
     },
 
-    async updateTickers() {
-      // if (!this.tickers.length) {
-      //   return;
-      // }
-      // const exchangeData = await loadTickers(this.tickers.map((t) => t.name));
-      // this.tickers.forEach((ticker) => {
-      //   const price = exchangeData[ticker.name.toUpperCase()];
-      //   ticker.price = price ?? "-";
-      // });
-    },
     select(ticker) {
       this.selectedTicker = ticker;
     },
+
     add() {
       const currentTicker = {
         name: this.ticker,
         price: "-",
       };
+
+      if (this.tickers.find((ticker) => ticker.name === currentTicker.name)) {
+        this.invalidCoin = true;
+        return;
+      }
 
       this.tickers = [...this.tickers, currentTicker];
 
@@ -267,6 +330,7 @@ export default {
         this.updateTicker(currentTicker.name, newPrice);
       });
     },
+
     handleDelete(tickerToRemove) {
       this.tickers = this.tickers.filter((t) => t !== tickerToRemove);
       if (this.selectedTicker === tickerToRemove) {
